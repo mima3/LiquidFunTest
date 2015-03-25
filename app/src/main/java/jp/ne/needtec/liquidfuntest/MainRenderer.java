@@ -7,30 +7,41 @@ import android.opengl.GLSurfaceView;
 import android.opengl.GLU;
 import android.opengl.GLUtils;
 import android.util.Log;
+import android.view.MotionEvent;
+import android.view.View;
 
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
 import com.google.fpl.liquidfun.BodyType;
 import com.google.fpl.liquidfun.CircleShape;
-import com.google.fpl.liquidfun.Fixture;
+import com.google.fpl.liquidfun.ParticleFlag;
+import com.google.fpl.liquidfun.ParticleGroup;
+import com.google.fpl.liquidfun.ParticleGroupDef;
+import com.google.fpl.liquidfun.ParticleGroupFlag;
+import com.google.fpl.liquidfun.ParticleSystem;
+import com.google.fpl.liquidfun.ParticleSystemDef;
 import com.google.fpl.liquidfun.PolygonShape;
+import com.google.fpl.liquidfun.Vec2;
 import com.google.fpl.liquidfun.World;
 import com.google.fpl.liquidfun.Body;
-import com.google.fpl.liquidfun.Vec2;
 import com.google.fpl.liquidfun.BodyDef;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 
 /**
- * Created by mitagaki on 2015/03/23.
+ * Created by m.ita on 2015/03/23.
  */
-public class MainRenderer implements GLSurfaceView.Renderer {
+public class MainRenderer implements GLSurfaceView.Renderer, View.OnTouchListener {
     private World world = null;
     private HashMap<Long, BodyData> mapBodyData = new HashMap<Long, BodyData>();
+    private HashMap<Long, ParticleData> mapParticleData = new HashMap<Long, ParticleData>();
     private long nextBodyDataId = 1;
     private static final float TIME_STEP = 1 / 60f; // 60 fps
     private static final int VELOCITY_ITERATIONS = 6;
@@ -39,10 +50,51 @@ public class MainRenderer implements GLSurfaceView.Renderer {
     private Context context;
     private HashMap<Integer, Integer> mapResIdToTextureId = new HashMap<Integer, Integer>();
 
+    
 
     static {
         System.loadLibrary("liquidfun");
         System.loadLibrary("liquidfun_jni");
+    }
+    class ParticleData {
+        long id;
+        ParticleSystem particleSystem;
+        float particleRadius;
+        int textureId;
+        ArrayList<ArrayList<Integer>> row;
+
+        public ParticleData(long id, ParticleSystem ps, float particleRadius, ArrayList<ArrayList<Integer>> row, int textureId) {
+            this.id = id;
+            this.particleSystem = ps;
+            this.textureId = textureId;
+            this.particleRadius = particleRadius;
+            this.row = row;
+        }
+
+        public long getId() {
+            return this.id;
+        }
+
+        public ParticleSystem getParticleSystem() {
+            return this.particleSystem;
+        }
+
+        public int getTextureId() { return this.textureId;}
+
+        public float getParticleRadius() { return this.particleRadius;}
+
+        public ArrayList<ArrayList<Integer>> getRow() { return this.row;}
+    }
+
+    class PointData {
+        public float x;
+        public float y;
+        public int ix;
+        public PointData(float x, float y, int ix) {
+            this.x = x;
+            this.y = y;
+            this.ix = ix;
+        }
     }
 
     class BodyData {
@@ -96,6 +148,12 @@ public class MainRenderer implements GLSurfaceView.Renderer {
         long id = nextBodyDataId++;
         BodyData data = new BodyData(id, body, buffer, uv, drawMode, textureId);
         this.mapBodyData.put(id, data);
+    }
+
+    private void addParticleData(ParticleSystem ps, float particleRadius, ArrayList<ArrayList<Integer>> row, int textureId) {
+        long id = nextBodyDataId++;
+        ParticleData data = new ParticleData(id, ps, particleRadius, row, textureId);
+        this.mapParticleData.put(id, data);
     }
 
     public void addCircle(GL10 gl,float r, float x, float y, float angle, BodyType type, float density, int resId) {
@@ -153,6 +211,43 @@ public class MainRenderer implements GLSurfaceView.Renderer {
         this.addBodyData(body, vertices, uv, GL10.GL_TRIANGLE_STRIP, textureId);
     }
 
+    public void addSoftBody(GL10 gl,float hx, float hy, float cx, float cy, float particleRadius, int resId) {
+        ParticleSystemDef psd = new ParticleSystemDef();
+        psd.setRadius(particleRadius);
+        ParticleSystem ps = world.createParticleSystem(psd);
+
+        PolygonShape shape = new PolygonShape();
+        shape.setAsBox(hx, hy, 0, 0, 0);
+
+        ParticleGroupDef pgd = new ParticleGroupDef();
+        pgd.setFlags(ParticleFlag.elasticParticle);
+        pgd.setGroupFlags(ParticleGroupFlag.solidParticleGroup);
+        pgd.setShape(shape);
+        pgd.setPosition(cx, cy);
+        ParticleGroup pg = ps.createParticleGroup(pgd);
+
+        float py = 0;
+        ArrayList<ArrayList<Integer>> row = new ArrayList<ArrayList<Integer>>();
+        ArrayList<Integer> line = new ArrayList<Integer>();
+        for (int i = pg.getBufferIndex(); i < pg.getParticleCount() - pg.getBufferIndex(); ++i) {
+            float y = ps.getParticlePositionY(i);
+            if (i==0) {
+                py = y;
+            }
+            // 行変更
+            if ((float)Math.abs(py - y) > 0.01f) {
+                row.add(line);
+                line = new ArrayList<Integer>();
+            }
+            line.add(i);
+            py = y;
+        }
+        row.add(line);
+
+        int textureId=makeTexture(gl, resId);
+        this.addParticleData(ps, particleRadius, row, textureId);
+    }
+
     /**
      * 描画のため繰り返し呼ばれる
      * @param gl
@@ -188,7 +283,83 @@ public class MainRenderer implements GLSurfaceView.Renderer {
             }
             gl.glPopMatrix();
         }
+        for(Long key: this.mapParticleData.keySet()) {
+            gl.glPushMatrix();
+            {
+                ParticleData pd = this.mapParticleData.get(key);
+                ParticleSystem ps = pd.getParticleSystem();
+                ParticleGroup pg = ps.getParticleGroupList();
+                ArrayList<ArrayList<Integer>> row = pd.getRow();
+                for (int i = 0; i < row.size() -1; ++i) {
+                    ArrayList<Integer> col = row.get(i);
+                    float dy = 1.0f/row.size();
+                    float dx = 1.0f/col.size();
+                    for (int j = 0; j < col.size() - 1; ++j) {
+                        float xlist[] = {
+                            ps.getParticlePositionX(row.get(i).get(j)),
+                            ps.getParticlePositionX(row.get(i).get(j + 1)),
+                            ps.getParticlePositionX(row.get(i + 1).get(j)),
+                            ps.getParticlePositionX(row.get(i + 1).get(j + 1))
+                        };
+                        Arrays.sort(xlist);
+                        float ylist[] = {
+                            ps.getParticlePositionY(row.get(i).get(j)),
+                            ps.getParticlePositionY(row.get(i).get(j + 1)),
+                            ps.getParticlePositionY(row.get(i + 1).get(j)),
+                            ps.getParticlePositionY(row.get(i + 1).get(j + 1))
+                        };
+                        Arrays.sort(ylist);
 
+                        float vertices[] = {
+                            xlist[0], ylist[ylist.length-1],
+                            xlist[0], ylist[0],
+                            xlist[xlist.length-1], ylist[ylist.length-1],
+                            xlist[xlist.length-1], ylist[0],
+                        };
+                        float[] uv={
+                            j * dx, 1 - i * dy,         //左上
+                            j * dx, 1 - (i+1) * dy,     //左下
+                            (j+1) * dx, 1 - i * dy,     //右上
+                            (j+1) * dx, 1 - (i+1) * dy, //右下
+                        };
+                        FloatBuffer vertexBuffer = makeFloatBuffer(vertices);
+                        FloatBuffer uvBuffer = makeFloatBuffer(uv);
+
+                        //テクスチャの指定
+                        gl.glActiveTexture(GL10.GL_TEXTURE0);
+                        gl.glBindTexture(GL10.GL_TEXTURE_2D, pd.getTextureId());
+
+                        //UVバッファの指定
+                        gl.glTexCoordPointer(2,GL10.GL_FLOAT,0, uvBuffer);
+
+                        gl.glVertexPointer(2, GL10.GL_FLOAT, 0, vertexBuffer);
+                        gl.glDrawArrays(GL10.GL_TRIANGLE_STRIP, 0, vertices.length / 2);
+                    }
+                }
+            }
+            gl.glPopMatrix();
+        }
+
+    }
+    static private Float getAverage(ArrayList<Float> lst)
+    {
+        float sum = 0;
+        int count = 0;
+        for (Float f : lst) {
+            sum += f;
+            ++count;
+        }
+        return sum / count;
+    }
+    static private Float getMax(ArrayList<Float> lst)
+    {
+        float max = -999999;
+        for (Float f : lst) {
+            if (max < f) {
+                max = f;
+            }
+        }
+        return max;
     }
 
     /**
@@ -205,20 +376,23 @@ public class MainRenderer implements GLSurfaceView.Renderer {
         gl.glLoadIdentity();
         GLU.gluPerspective(gl, 45f, (float) width / height, 1f, 50f);
         GLU.gluLookAt(gl,
-                0, 0, 50,    // カメラの位置
-                0, 0, 0,    // カメラの注視点
+                0, 15, 50,    // カメラの位置
+                0, 15, 0,    // カメラの注視点
                 0, 1, 0     // カメラの上方向
         );
     }
 
     @Override
     public void onSurfaceCreated(GL10 gl, EGLConfig config) {
-        this.addBox(gl, 50, 1, 0, 0, 0, BodyType.staticBody, 10, R.drawable.maricha);
-        this.addBox(gl, 2, 2, 8.5f, 25, 0, BodyType.dynamicBody, 1, R.drawable.maricha);
-        this.addBox(gl, 2, 2, 10, 30, 0, BodyType.dynamicBody, 1, R.drawable.maricha);
+        this.addBox(gl, 1, 20, -20, 10, 0, BodyType.staticBody, 10, R.drawable.wall);
+        this.addBox(gl, 1, 20, 20, 10, 0, BodyType.staticBody, 10, R.drawable.wall);
+        this.addBox(gl, 20, 1, 0, 0, 0, BodyType.staticBody, 10, R.drawable.wall);
+        this.addSoftBody(gl, 2, 2, 8.5f, 25, 0.1f, R.drawable.maricha);
+        this.addBox(gl, 2, 2, 10, 30, 0, BodyType.dynamicBody, 10, R.drawable.wall);
         this.addCircle(gl, 1, 11, 30, 0, BodyType.dynamicBody, 1, R.drawable.ball);
 
-        gl.glEnable(GL10.GL_DEPTH_TEST);
+        //gl.glEnable(GL10.GL_DEPTH_TEST);
+        gl.glClearColor(0.0f,0.0f,1.0f,1.0f);
         gl.glEnable(GL10.GL_LIGHTING);
         gl.glEnable(GL10.GL_LIGHT0);
         gl.glDepthFunc(GL10.GL_LEQUAL);
@@ -227,13 +401,8 @@ public class MainRenderer implements GLSurfaceView.Renderer {
 
         //テクスチャの有効化
         gl.glEnable(GL10.GL_TEXTURE_2D);
-        //テクスチャの生成
-        //Bitmap bmp= BitmapFactory.decodeResource(this.context.getResources(), R.drawable.maricha);
-        //textureId=makeTexture(gl, bmp);
-
-
-        //bmp= BitmapFactory.decodeResource(this.context.getResources(), R.drawable.ball);
-        //int t2 = textureId=makeTexture(gl, bmp);
+        gl.glBlendFunc(GL10.GL_SRC_ALPHA, GL10.GL_ONE_MINUS_SRC_ALPHA);
+        gl.glEnable(GL10.GL_BLEND);
     }
     //テクスチャの生成
     private int makeTexture(GL10 gl10, int resId) {
@@ -245,7 +414,7 @@ public class MainRenderer implements GLSurfaceView.Renderer {
 
         //テクスチャのメモリ確保
         int[] textureIds=new int[1];
-        gl10.glGenTextures(1,textureIds,0);
+        gl10.glGenTextures(1,textureIds, 0);
 
         //テクスチャへのビットマップ指定
         gl10.glActiveTexture(GL10.GL_TEXTURE0);
@@ -267,5 +436,25 @@ public class MainRenderer implements GLSurfaceView.Renderer {
                 ByteOrder.nativeOrder()).asFloatBuffer();
         fb.put(array).position(0);
         return fb;
+    }
+
+    // ////////////////////////////////////////////////////////////
+    // タッチされたときに呼び出される
+    public synchronized boolean onTouch(View v, MotionEvent event) {
+        Log.d("Touch", "onTouch");
+        switch (event.getAction()) {
+            case MotionEvent.ACTION_DOWN:
+                v.setPressed(true);
+                break;
+            case MotionEvent.ACTION_UP:
+                Log.d("Touch", "Pseudo onClick");
+                Log.d("Touch", "x = " + event.getX() + ", y = " + event.getY());
+                v.setPressed(false);
+                /** Do something. */
+                break;
+            default:
+                break;
+        }
+        return true;
     }
 }
