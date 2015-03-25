@@ -6,12 +6,14 @@ import android.graphics.BitmapFactory;
 import android.opengl.GLSurfaceView;
 import android.opengl.GLU;
 import android.opengl.GLUtils;
+import android.opengl.Matrix;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
 
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
+import javax.microedition.khronos.opengles.GL11;
 
 import com.google.fpl.liquidfun.BodyType;
 import com.google.fpl.liquidfun.CircleShape;
@@ -47,10 +49,18 @@ public class MainRenderer implements GLSurfaceView.Renderer, View.OnTouchListene
     private static final int VELOCITY_ITERATIONS = 6;
     private static final int POSITION_ITERATIONS = 2;
     private static final int PARTICLE_ITERATIONS = 5;
-    private Context context;
+    private MainGlView view;
     private HashMap<Integer, Integer> mapResIdToTextureId = new HashMap<Integer, Integer>();
 
-    
+    private float mouseX;
+    private float mouseY;
+
+    enum MouseStatus {
+        Up,
+        Down
+    }
+    private MouseStatus mouseStatus = MouseStatus.Up;
+    private MouseStatus mousePrevState = MouseStatus.Up;
 
     static {
         System.loadLibrary("liquidfun");
@@ -84,17 +94,6 @@ public class MainRenderer implements GLSurfaceView.Renderer, View.OnTouchListene
         public float getParticleRadius() { return this.particleRadius;}
 
         public ArrayList<ArrayList<Integer>> getRow() { return this.row;}
-    }
-
-    class PointData {
-        public float x;
-        public float y;
-        public int ix;
-        public PointData(float x, float y, int ix) {
-            this.x = x;
-            this.y = y;
-            this.ix = ix;
-        }
     }
 
     class BodyData {
@@ -137,8 +136,8 @@ public class MainRenderer implements GLSurfaceView.Renderer, View.OnTouchListene
         public int getTextureId() { return this.textureId;}
     }
 
-    public MainRenderer(Context context) {
-        this.context = context;
+    public MainRenderer(MainGlView view) {
+        this.view = view;
         world = new World(0, -10);
         //this.addBox(1, 1, 0, 10, 0, BodyType.dynamicBody, 0);
 
@@ -339,28 +338,51 @@ public class MainRenderer implements GLSurfaceView.Renderer, View.OnTouchListene
             }
             gl.glPopMatrix();
         }
-
-    }
-    static private Float getAverage(ArrayList<Float> lst)
-    {
-        float sum = 0;
-        int count = 0;
-        for (Float f : lst) {
-            sum += f;
-            ++count;
+        if (this.mouseStatus != MouseStatus.Down) {
+            return;
         }
-        return sum / count;
-    }
-    static private Float getMax(ArrayList<Float> lst)
-    {
-        float max = -999999;
-        for (Float f : lst) {
-            if (max < f) {
-                max = f;
+        GL11 gl11 = (GL11)gl;
+        int[] bits = new int[16];
+        float[] model = new float[16];
+        float[] proj = new float[16];
+        gl11.glGetIntegerv(gl11.GL_MODELVIEW_MATRIX_FLOAT_AS_INT_BITS_OES, bits, 0);
+        for(int i = 0; i < bits.length; i++){
+            model[i] = Float.intBitsToFloat(bits[i]);
+        }
+        gl11.glGetIntegerv(gl11.GL_PROJECTION_MATRIX_FLOAT_AS_INT_BITS_OES, bits, 0);
+        for(int i = 0; i < bits.length; i++){
+            proj[i] = Float.intBitsToFloat(bits[i]);
+        }
+
+        float[] ret = new float[4];
+        GLU.gluUnProject(
+                (float)this.mouseX, (float)this.view.getHeight()-this.mouseY, 1f,
+                model, 0, proj, 0,
+                new int[]{0, 0, this.view.getWidth(), this.view.getHeight()}, 0,
+                ret, 0);
+        float x = (float)(ret[0] / ret[3]);
+        float y = (float)(ret[1] / ret[3]);
+        float z = (float)(ret[2] / ret[3]);
+        Log.i("HIT!", Float.toString(x));
+        Log.i("HIT!", Float.toString(y));
+        //float[] res = GetWorldCoords(gl, this.mouseX, this.mouseY);
+        for(Long key: this.mapParticleData.keySet()) {
+            ParticleData pd = this.mapParticleData.get(key);
+            ParticleSystem ps = pd.getParticleSystem();
+            ParticleGroup pg = ps.getParticleGroupList();
+            for (int i = pg.getBufferIndex(); i < pg.getParticleCount() - pg.getBufferIndex(); ++i) {
+                float py = ps.getParticlePositionY(i);
+                float px = ps.getParticlePositionX(i);
+                if (Math.abs(px-x) <= pd.getParticleRadius() * 2 && Math.abs(py-y) <= pd.getParticleRadius() * 2 ) {
+                    ps.setParticleVelocity(i, 500, 500);
+                    Log.d("HIT!", "HIT!!!!!!!!!!!!!!!!");
+                    return;
+                }
             }
         }
-        return max;
     }
+
+
 
     /**
      * 主に landscape と portraid の切り替え (縦向き、横向き切り替え) のときに呼ばれる
@@ -392,7 +414,7 @@ public class MainRenderer implements GLSurfaceView.Renderer, View.OnTouchListene
         this.addCircle(gl, 1, 11, 30, 0, BodyType.dynamicBody, 1, R.drawable.ball);
 
         //gl.glEnable(GL10.GL_DEPTH_TEST);
-        gl.glClearColor(0.0f,0.0f,1.0f,1.0f);
+        gl.glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
         gl.glEnable(GL10.GL_LIGHTING);
         gl.glEnable(GL10.GL_LIGHT0);
         gl.glDepthFunc(GL10.GL_LEQUAL);
@@ -410,7 +432,7 @@ public class MainRenderer implements GLSurfaceView.Renderer, View.OnTouchListene
         if (texId != null) {
             return  texId;
         }
-        Bitmap bmp= BitmapFactory.decodeResource(this.context.getResources(), resId);
+        Bitmap bmp= BitmapFactory.decodeResource(this.view.getContext().getResources(), resId);
 
         //テクスチャのメモリ確保
         int[] textureIds=new int[1];
@@ -441,19 +463,17 @@ public class MainRenderer implements GLSurfaceView.Renderer, View.OnTouchListene
     // ////////////////////////////////////////////////////////////
     // タッチされたときに呼び出される
     public synchronized boolean onTouch(View v, MotionEvent event) {
-        Log.d("Touch", "onTouch");
-        switch (event.getAction()) {
+        switch( event.getAction() ) {
             case MotionEvent.ACTION_DOWN:
-                v.setPressed(true);
+                this.mouseStatus = MouseStatus.Down;
+                this.mouseX =  event.getX();
+                this.mouseY = event.getY();
+                Log.i("Pos", Float.toString(this.mouseX));
+                Log.i("Pos", Float.toString(this.mouseY));
+
                 break;
             case MotionEvent.ACTION_UP:
-                Log.d("Touch", "Pseudo onClick");
-                Log.d("Touch", "x = " + event.getX() + ", y = " + event.getY());
-                v.setPressed(false);
-                /** Do something. */
-                break;
-            default:
-                break;
+                this.mouseStatus = MouseStatus.Up;
         }
         return true;
     }

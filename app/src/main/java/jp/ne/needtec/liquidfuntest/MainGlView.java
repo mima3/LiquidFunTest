@@ -3,6 +3,8 @@ import android.content.Context;
 import android.opengl.GLSurfaceView;
 import android.opengl.GLU;
 
+import javax.microedition.khronos.opengles.GL;
+
 /**
  * Created by mitagaki on 2015/03/23.
  */
@@ -12,7 +14,7 @@ public class MainGlView extends GLSurfaceView {
 
     public MainGlView(Context context) {
         super(context);
-        this.renderer = new MainRenderer(context);
+        this.renderer = new MainRenderer(this);
         setRenderer(renderer);
         this.setOnTouchListener(this.renderer);
 
