@@ -379,6 +379,8 @@ public class liquidfunJNI {
   public final static native int ParticleSystem_copyPositionBuffer(long jarg1, ParticleSystem jarg1_, int jarg2, int jarg3, java.nio.ByteBuffer jarg4);
   public final static native int ParticleSystem_copyColorBuffer(long jarg1, ParticleSystem jarg1_, int jarg2, int jarg3, java.nio.ByteBuffer jarg4);
   public final static native int ParticleSystem_copyWeightBuffer(long jarg1, ParticleSystem jarg1_, int jarg2, int jarg3, java.nio.ByteBuffer jarg4);
+  public final static native void ParticleSystem_setPaused(long jarg1, ParticleSystem jarg1_, boolean jarg2);
+  public final static native boolean ParticleSystem_getPaused(long jarg1, ParticleSystem jarg1_);
   public final static native void ParticlePair_indexA_set(long jarg1, ParticlePair jarg1_, int jarg2);
   public final static native int ParticlePair_indexA_get(long jarg1, ParticlePair jarg1_);
   public final static native void ParticlePair_indexB_set(long jarg1, ParticlePair jarg1_, int jarg2);

@@ -3,6 +3,7 @@ package jp.ne.needtec.liquidfuntest;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Point;
 import android.opengl.GLSurfaceView;
 import android.opengl.GLU;
 import android.opengl.GLUtils;
@@ -52,15 +53,18 @@ public class MainRenderer implements GLSurfaceView.Renderer, View.OnTouchListene
     private MainGlView view;
     private HashMap<Integer, Integer> mapResIdToTextureId = new HashMap<Integer, Integer>();
 
-    private float mouseX;
-    private float mouseY;
+    private float mouseDownX;
+    private float mouseDownY;
+    private float mouseUpX;
+    private float mouseUpY;
 
     enum MouseStatus {
+        None,
         Up,
         Down
     }
-    private MouseStatus mouseStatus = MouseStatus.Up;
-    private MouseStatus mousePrevState = MouseStatus.Up;
+    private MouseStatus mouseStatus = MouseStatus.None;
+    private MouseStatus mousePrevState = MouseStatus.None;
 
     static {
         System.loadLibrary("liquidfun");
@@ -260,28 +264,7 @@ public class MainRenderer implements GLSurfaceView.Renderer, View.OnTouchListene
         gl.glMatrixMode(GL10.GL_MODELVIEW);
         gl.glLoadIdentity();
 
-        for(Long key: this.mapBodyData.keySet()) {
-            gl.glPushMatrix();
-            {
-                BodyData bd = this.mapBodyData.get(key);
-                gl.glTranslatef(bd.getBody().getPositionX(), bd.getBody().getPositionY(), 0);
-                float angle = (float)Math.toDegrees(bd.getBody().getAngle());
-                gl.glRotatef(angle , 0, 0, 1);
 
-                //テクスチャの指定
-                gl.glActiveTexture(GL10.GL_TEXTURE0);
-                gl.glBindTexture(GL10.GL_TEXTURE_2D, bd.getTextureId());
-
-                //UVバッファの指定
-                gl.glTexCoordPointer(2,GL10.GL_FLOAT,0, bd.getUvBuffer());
-
-                FloatBuffer buff = bd.getVertexBuffer();
-                gl.glVertexPointer(2, GL10.GL_FLOAT, 0, buff);
-                gl.glDrawArrays(bd.getDrawMode(), 0, bd.getVertexLen());
-
-            }
-            gl.glPopMatrix();
-        }
         for(Long key: this.mapParticleData.keySet()) {
             gl.glPushMatrix();
             {
@@ -330,9 +313,60 @@ public class MainRenderer implements GLSurfaceView.Renderer, View.OnTouchListene
             }
             gl.glPopMatrix();
         }
-        if (this.mouseStatus != MouseStatus.Down) {
+        for(Long key: this.mapBodyData.keySet()) {
+            gl.glPushMatrix();
+            {
+                BodyData bd = this.mapBodyData.get(key);
+                gl.glTranslatef(bd.getBody().getPositionX(), bd.getBody().getPositionY(), 0);
+                float angle = (float)Math.toDegrees(bd.getBody().getAngle());
+                gl.glRotatef(angle , 0, 0, 1);
+
+                //テクスチャの指定
+                gl.glActiveTexture(GL10.GL_TEXTURE0);
+                gl.glBindTexture(GL10.GL_TEXTURE_2D, bd.getTextureId());
+
+                //UVバッファの指定
+                gl.glTexCoordPointer(2,GL10.GL_FLOAT,0, bd.getUvBuffer());
+
+                FloatBuffer buff = bd.getVertexBuffer();
+                gl.glVertexPointer(2, GL10.GL_FLOAT, 0, buff);
+                gl.glDrawArrays(bd.getDrawMode(), 0, bd.getVertexLen());
+
+            }
+            gl.glPopMatrix();
+        }
+        if (this.mouseStatus != MouseStatus.Up) {
             return;
         }
+        this.mouseStatus = MouseStatus.None;
+        float[] positionDn = getWorldPoint(this.mouseDownX, this.mouseDownY, gl);
+        float[] positionUp = getWorldPoint(this.mouseUpX, this.mouseUpY, gl);
+        float x = positionDn[0];
+        float y = positionDn[1];
+        Log.i("mouseDn", Float.toString(x));
+        Log.i("mouseDn", Float.toString(y));
+        Log.i("mouseUp", Float.toString(positionUp[0]));
+        Log.i("mouseUp", Float.toString(positionUp[1]));
+        for(Long key: this.mapParticleData.keySet()) {
+            ParticleData pd = this.mapParticleData.get(key);
+            ParticleSystem ps = pd.getParticleSystem();
+            ParticleGroup pg = ps.getParticleGroupList();
+            for (int i = pg.getBufferIndex(); i < pg.getParticleCount() - pg.getBufferIndex(); ++i) {
+                float py = ps.getParticlePositionY(i);
+                float px = ps.getParticlePositionX(i);
+                if (Math.abs(px-x) <= pd.getParticleRadius() * 2 && Math.abs(py-y) <= pd.getParticleRadius() * 2 ) {
+                    float vx = (positionUp[0] - x)*10000;
+                    float vy = (positionUp[1] - y)*10000;
+                    Log.i("Vx", Float.toString(vx));
+                    Log.i("Vy", Float.toString(vy));
+                    ps.setParticleVelocity(i, vx, vy);
+                    //ps.setPaused(true);
+                    return;
+                }
+            }
+        }
+    }
+    private float[] getWorldPoint(float mx, float my, GL10 gl) {
         GL11 gl11 = (GL11)gl;
         int[] bits = new int[16];
         float[] model = new float[16];
@@ -348,32 +382,18 @@ public class MainRenderer implements GLSurfaceView.Renderer, View.OnTouchListene
 
         float[] ret = new float[4];
         GLU.gluUnProject(
-                (float)this.mouseX, (float)this.view.getHeight()-this.mouseY, 1f,
+                mx, (float)this.view.getHeight()-my, 1f,
                 model, 0, proj, 0,
                 new int[]{0, 0, this.view.getWidth(), this.view.getHeight()}, 0,
                 ret, 0);
         float x = (float)(ret[0] / ret[3]);
         float y = (float)(ret[1] / ret[3]);
         float z = (float)(ret[2] / ret[3]);
-        Log.i("HIT!", Float.toString(x));
-        Log.i("HIT!", Float.toString(y));
-        //float[] res = GetWorldCoords(gl, this.mouseX, this.mouseY);
-        for(Long key: this.mapParticleData.keySet()) {
-            ParticleData pd = this.mapParticleData.get(key);
-            ParticleSystem ps = pd.getParticleSystem();
-            ParticleGroup pg = ps.getParticleGroupList();
-            for (int i = pg.getBufferIndex(); i < pg.getParticleCount() - pg.getBufferIndex(); ++i) {
-                float py = ps.getParticlePositionY(i);
-                float px = ps.getParticlePositionX(i);
-                if (Math.abs(px-x) <= pd.getParticleRadius() * 2 && Math.abs(py-y) <= pd.getParticleRadius() * 2 ) {
-                    ps.setParticleVelocity(i, 500, 500);
-                    Log.d("HIT!", "HIT!!!!!!!!!!!!!!!!");
-                    return;
-                }
-            }
-        }
+        float position[] = new float[2];
+        position[0] = x;
+        position[1] = y;
+        return position;
     }
-
 
 
     /**
@@ -402,7 +422,7 @@ public class MainRenderer implements GLSurfaceView.Renderer, View.OnTouchListene
         this.addBox(gl, 1, 20, 20, 10, 0, BodyType.staticBody, 10, R.drawable.wall);
         this.addBox(gl, 20, 1, 0, 0, 0, BodyType.staticBody, 10, R.drawable.wall);
         this.addBox(gl, 20, 1, 0, 30, 0, BodyType.staticBody, 10, R.drawable.wall);
-        this.addSoftBody(gl, 2, 2, 8.5f, 5, 0.25f, R.drawable.maricha);
+        this.addSoftBody(gl, 2, 2, 8.5f, 5, 0.2f, R.drawable.maricha);
         this.addBox(gl, 2, 2, 10, 15, 0, BodyType.dynamicBody, 1, R.drawable.wall);
         this.addCircle(gl, 1, 11, 15, 0, BodyType.dynamicBody, 1, R.drawable.ball);
 
@@ -459,14 +479,14 @@ public class MainRenderer implements GLSurfaceView.Renderer, View.OnTouchListene
         switch( event.getAction() ) {
             case MotionEvent.ACTION_DOWN:
                 this.mouseStatus = MouseStatus.Down;
-                this.mouseX =  event.getX();
-                this.mouseY = event.getY();
-                Log.i("Pos", Float.toString(this.mouseX));
-                Log.i("Pos", Float.toString(this.mouseY));
-
+                this.mouseDownX =  event.getX();
+                this.mouseDownY = event.getY();
                 break;
             case MotionEvent.ACTION_UP:
                 this.mouseStatus = MouseStatus.Up;
+                this.mouseUpX =  event.getX();
+                this.mouseUpY = event.getY();
+                break;
         }
         return true;
     }

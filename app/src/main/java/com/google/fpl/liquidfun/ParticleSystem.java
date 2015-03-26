@@ -101,4 +101,12 @@ public class ParticleSystem {
     return liquidfunJNI.ParticleSystem_copyWeightBuffer(swigCPtr, this, startIndex, numParticles, outBuf);
   }
 
+  public void setPaused(boolean paused) {
+    liquidfunJNI.ParticleSystem_setPaused(swigCPtr, this, paused);
+  }
+
+  public boolean getPaused() {
+    return liquidfunJNI.ParticleSystem_getPaused(swigCPtr, this);
+  }
+
 }
