@@ -291,29 +291,21 @@ public class MainRenderer implements GLSurfaceView.Renderer, View.OnTouchListene
                 ArrayList<ArrayList<Integer>> row = pd.getRow();
                 for (int i = 0; i < row.size() -1; ++i) {
                     ArrayList<Integer> col = row.get(i);
-                    float dy = 1.0f/row.size();
-                    float dx = 1.0f/col.size();
+                    float dy = 1.0f/(row.size()-1);
+                    float dx = 1.0f/(col.size()-1);
+                    float paddingX = 2 * pd.getParticleRadius()/(col.size());
+                    float paddingY = 2 * pd.getParticleRadius()/(row.size());
                     for (int j = 0; j < col.size() - 1; ++j) {
-                        float xlist[] = {
-                            ps.getParticlePositionX(row.get(i).get(j)),
-                            ps.getParticlePositionX(row.get(i).get(j + 1)),
-                            ps.getParticlePositionX(row.get(i + 1).get(j)),
-                            ps.getParticlePositionX(row.get(i + 1).get(j + 1))
-                        };
-                        Arrays.sort(xlist);
-                        float ylist[] = {
-                            ps.getParticlePositionY(row.get(i).get(j)),
-                            ps.getParticlePositionY(row.get(i).get(j + 1)),
-                            ps.getParticlePositionY(row.get(i + 1).get(j)),
-                            ps.getParticlePositionY(row.get(i + 1).get(j + 1))
-                        };
-                        Arrays.sort(ylist);
+                        float px1 = paddingX * j - pd.getParticleRadius();
+                        float px2 = paddingX * (j+1) - pd.getParticleRadius();
+                        float py1 = paddingY * i - pd.getParticleRadius();
+                        float py2 = paddingY * (i+1) - pd.getParticleRadius();
 
                         float vertices[] = {
-                            xlist[0], ylist[ylist.length-1],
-                            xlist[0], ylist[0],
-                            xlist[xlist.length-1], ylist[ylist.length-1],
-                            xlist[xlist.length-1], ylist[0],
+                            ps.getParticlePositionX(row.get(i).get(j)) + px1, ps.getParticlePositionY(row.get(i).get(j)) + py1,
+                            ps.getParticlePositionX(row.get(i + 1).get(j)) + px1, ps.getParticlePositionY(row.get(i + 1).get(j)) + py2,
+                            ps.getParticlePositionX(row.get(i).get(j + 1)) + px2, ps.getParticlePositionY(row.get(i).get(j + 1)) + py1,
+                            ps.getParticlePositionX(row.get(i + 1).get(j + 1)) + px2, ps.getParticlePositionY(row.get(i + 1).get(j + 1)) + py2,
                         };
                         float[] uv={
                             j * dx, 1 - i * dy,         //左上
@@ -409,9 +401,10 @@ public class MainRenderer implements GLSurfaceView.Renderer, View.OnTouchListene
         this.addBox(gl, 1, 20, -20, 10, 0, BodyType.staticBody, 10, R.drawable.wall);
         this.addBox(gl, 1, 20, 20, 10, 0, BodyType.staticBody, 10, R.drawable.wall);
         this.addBox(gl, 20, 1, 0, 0, 0, BodyType.staticBody, 10, R.drawable.wall);
-        this.addSoftBody(gl, 2, 2, 8.5f, 25, 0.1f, R.drawable.maricha);
-        this.addBox(gl, 2, 2, 10, 30, 0, BodyType.dynamicBody, 10, R.drawable.wall);
-        this.addCircle(gl, 1, 11, 30, 0, BodyType.dynamicBody, 1, R.drawable.ball);
+        this.addBox(gl, 20, 1, 0, 30, 0, BodyType.staticBody, 10, R.drawable.wall);
+        this.addSoftBody(gl, 2, 2, 8.5f, 5, 0.25f, R.drawable.maricha);
+        this.addBox(gl, 2, 2, 10, 15, 0, BodyType.dynamicBody, 1, R.drawable.wall);
+        this.addCircle(gl, 1, 11, 15, 0, BodyType.dynamicBody, 1, R.drawable.ball);
 
         //gl.glEnable(GL10.GL_DEPTH_TEST);
         gl.glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
